@@ -1,0 +1,82 @@
+* { box-sizing: border-box; }
+body { margin: 0; }
+
+.app {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 24px;
+  color: #1a202c;
+}
+
+header h1 { font-size: 1.5rem; margin-bottom: 16px; }
+
+.search-form {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.search-form input {
+  flex: 1;
+  padding: 10px 12px;
+  border: 1px solid #cbd5e0;
+  border-radius: 6px;
+  font-size: 1rem;
+}
+.search-form button, .dashboard-header button, .result-row button {
+  padding: 10px 16px;
+  border: none;
+  border-radius: 6px;
+  background: #2f855a;
+  color: white;
+  cursor: pointer;
+  font-size: 0.95rem;
+}
+.search-form button:disabled, .result-row button:disabled, .dashboard-header button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.result-list { list-style: none; padding: 0; margin: 0 0 24px; }
+.result-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid #edf2f7;
+}
+
+.main-layout { display: flex; gap: 24px; }
+aside { width: 240px; flex-shrink: 0; }
+main { flex: 1; }
+
+.tracked-list { list-style: none; padding: 0; margin: 0; }
+.tracked-list li {
+  padding: 10px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  margin-bottom: 4px;
+}
+.tracked-list li:hover { background: #f7fafc; }
+.tracked-list li.active { background: #2f855a; color: white; }
+
+.dashboard-header { display: flex; justify-content: space-between; align-items: center; }
+
+.latest-price { margin: 12px 0 24px; }
+.latest-price .price { font-size: 2rem; font-weight: 700; margin-right: 10px; }
+.latest-price .strike { text-decoration: line-through; opacity: 0.5; }
+
+.log-table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+.log-table th, .log-table td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid #edf2f7;
+  font-size: 0.9rem;
+}
+.status-failed { color: #c53030; }
+.status-success { color: #2f855a; }
+.status-retried { color: #b7791f; }
+
+.muted { color: #718096; }
+.muted.small { font-size: 0.85rem; }
+.error-text { color: #c53030; }
