@@ -1,167 +1,270 @@
-/**
- * SCRAPER MODULE
- * ---------------------------------------------------
- * Same logic you already tested in the standalone scrape.js, just packaged
- * as a function the Express server can call. Returns a result object; it
- * NEVER throws for a "the store failed" case -- that's a normal, expected
- * outcome (status: 'failed') that the caller logs honestly. It only throws
- * for genuine infrastructure problems (e.g. browser failed to launch).
- */
-const { chromium } = require('playwright');
+
+const { chromium } = require("playwright");
 
 const SELECTORS = {
-  priceBlock: '.price-block',
-  priceValue: '.price-block .price-main output',
-  originalPrice: '.price-block .price-main .mr-m4',
-  stock: '.price-block .stock-badge',
+  block: ".price-block",
+  price: '.price-main [class*="pv-"]',
+  original: '.price-main [class*="mr-"]',
+  stock: ".price-block .stock-badge",
 };
 
-const MAX_RETRIES = 4;
-const RETRY_DELAY_MS = 2500;
-const NAV_TIMEOUT_MS = 15000;
-const ELEMENT_TIMEOUT_MS = 10000;
+const MAX_RETRIES = 5;
+const RETRY_DELAY = 2000;
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-function parsePrice(rawText) {
-  if (!rawText) return null;
-  const cleaned = rawText.replace(/[^0-9.]/g, '');
-  const value = parseFloat(cleaned);
+function parsePrice(text) {
+  if (!text) return null;
+
+  let clean = text
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .replace(/[^0-9.,]/g, "");
+
+  const decimal = clean.match(/[,.](\d{2})$/);
+  let suffix = "";
+
+  if (decimal) {
+    suffix = "." + decimal[1];
+    clean = clean.slice(0, -3);
+  }
+
+  clean = clean.replace(/[,.]/g, "");
+
+  const value = parseFloat(clean + suffix);
   return Number.isFinite(value) ? value : null;
 }
 
-function parseStock(rawText) {
-  if (!rawText) return { inStock: null, count: null, raw: null };
-  const raw = rawText.trim();
+function parseStock(text) {
+  if (!text) return { raw: null, count: null, inStock: null };
+
+  const raw = text.trim();
   const lower = raw.toLowerCase();
-  const inStock = lower.includes('out of stock') ? false : lower.includes('stock') || lower.includes('left') ? true : null;
-  const match = raw.match(/(\d+)/);
-  const count = match ? parseInt(match[1], 10) : null;
-  return { inStock, count, raw };
+
+  return {
+    raw,
+    count: raw.match(/\d+/)?.[0]
+      ? parseInt(raw.match(/\d+/)[0])
+      : null,
+    inStock: lower.includes("out of stock")
+      ? false
+      : lower.includes("stock") || lower.includes("left")
+        ? true
+        : null,
+  };
 }
 
 async function attemptScrape(browser, url) {
   const page = await browser.newPage({
-    userAgent:
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
     viewport: { width: 1366, height: 768 },
-  });
-  await page.addInitScript(() => {
-    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
   });
 
   try {
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
+    await page.goto(url, {
+      waitUntil: "domcontentloaded",
+      timeout: 15000,
+    });
 
-    const outcome = await page
-      .waitForFunction(
-        ({ blockSelector, priceSelector }) => {
-          const block = document.querySelector(blockSelector);
-          const className = block ? block.className : '';
-          if (/price-error/.test(className)) {
-            const status = document.querySelector('.price-status');
-            const substatus = document.querySelector('.price-substatus');
-            return {
-              done: true,
-              failed: true,
-              reason: status ? status.textContent.trim() : 'price-error state',
-              substatus: substatus ? substatus.textContent.trim() : null,
-            };
-          }
-          const priceEl = document.querySelector(priceSelector);
-          if (/price-success/.test(className) && priceEl && priceEl.textContent.trim().length > 0) {
-            return { done: true, failed: false };
-          }
-          return false;
-        },
-        { blockSelector: SELECTORS.priceBlock, priceSelector: SELECTORS.priceValue },
-        { timeout: ELEMENT_TIMEOUT_MS }
-      )
-      .then((handle) => handle.jsonValue());
+    await page
+      .waitForLoadState("networkidle", { timeout: 8000 })
+      .catch(() => {});
+
+    // Handle cookie popup
+    for (let i = 0; i < 3; i++) {
+      const accept = page.getByRole("button", { name: /ACCEPT/i }).first();
+      const decline = page.getByRole("button", { name: /DECLINE/i }).first();
+
+      try {
+        await accept.click({ timeout: 1000 });
+      } catch {
+        try {
+          await decline.click({ timeout: 1000 });
+        } catch {
+          break;
+        }
+      }
+    }
+
+    await page.evaluate(() =>
+      document.querySelector(".cookie-overlay")?.remove()
+    );
+
+    // Scratch price block
+    const block = page.locator(SELECTORS.block).first();
+    await block.scrollIntoViewIfNeeded();
+
+    const box = await block.boundingBox();
+
+    if (box) {
+      await page.mouse.move(box.x + 10, box.y + 10);
+      await page.mouse.down();
+
+      for (let i = 0; i < 5; i++) {
+        await page.mouse.move(
+          box.x + box.width - 10,
+          box.y + 10 + i * 5,
+          { steps: 5 }
+        );
+
+        await page.mouse.move(
+          box.x + 10,
+          box.y + 15 + i * 5,
+          { steps: 5 }
+        );
+      }
+
+      await page.mouse.up();
+    }
+
+    // Click reveal button
+    try {
+      const button = page.locator(".price-block button").first();
+
+      await button.waitFor({ state: "visible", timeout: 3000 });
+
+      await page.evaluate(() => {
+        document
+          .querySelector(".price-block button")
+          ?.removeAttribute("disabled");
+      });
+
+      await button.click({ force: true });
+    } catch {}
+
+    // Wait for price
+    const result = await page.waitForFunction(
+      ({ block, price }) => {
+        const el = document.querySelector(block);
+        const priceEl = document.querySelector(price);
+
+        if (/price-error/.test(el?.className || "")) {
+          return {
+            failed: true,
+            reason:
+              document.querySelector(".price-status")?.textContent.trim() ||
+              "Price loading failed",
+          };
+        }
+
+        const updating = [...document.querySelectorAll(".price-main span")]
+          .some((x) => x.textContent.includes("Updating"));
+
+        if (
+          /price-success/.test(el?.className || "") &&
+          priceEl?.textContent.trim() &&
+          !updating &&
+          parseFloat(getComputedStyle(priceEl).opacity) >= 0.99
+        ) {
+          return { failed: false };
+        }
+
+        return false;
+      },
+      {
+        block: SELECTORS.block,
+        price: SELECTORS.price,
+      },
+      { timeout: 10000 }
+    );
+
+    const outcome = await result.jsonValue();
 
     if (outcome.failed) {
-      throw new Error(
-        `Store reported a price load failure: "${outcome.reason}"${outcome.substatus ? ` (${outcome.substatus})` : ''}`
-      );
+      throw new Error(outcome.reason);
     }
 
-    const priceText = await page.locator(SELECTORS.priceValue).first().innerText();
+    // Extract data
+    const priceText = await page.locator(SELECTORS.price).first().innerText();
     const price = parsePrice(priceText);
 
-    let stockText = null;
-    try {
-      stockText = await page.locator(SELECTORS.stock).first().innerText({ timeout: 3000 });
-    } catch {
-      stockText = null;
+    if (price === null) {
+      throw new Error(`Invalid price: ${priceText}`);
     }
+
+    let originalText = null;
+    let stockText = null;
+
+    try {
+      originalText = await page
+        .locator(SELECTORS.original)
+        .first()
+        .innerText({ timeout: 2000 });
+    } catch {}
+
+    try {
+      stockText = await page
+        .locator(SELECTORS.stock)
+        .first()
+        .innerText({ timeout: 2000 });
+    } catch {}
+
     const stock = parseStock(stockText);
 
-    let originalPriceText = null;
-    try {
-      originalPriceText = await page.locator(SELECTORS.originalPrice).first().innerText({ timeout: 2000 });
-    } catch {
-      originalPriceText = null;
-    }
-
-    if (price === null) {
-      throw new Error(`Could not parse a valid price from text: "${priceText}"`);
-    }
-
     return {
-      status: 'success',
+      status: "success",
       price,
-      originalPrice: parsePrice(originalPriceText),
+      originalPrice: parsePrice(originalText),
       stockText: stock.raw,
       stockCount: stock.count,
       inStock: stock.inStock,
       rawPriceText: priceText.trim(),
       scrapedAt: new Date().toISOString(),
     };
+
   } finally {
     await page.close();
   }
 }
 
-async function scrapeWithRetries(browser, url) {
-  let lastError = null;
-
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    try {
-      const result = await attemptScrape(browser, url);
-      return { ...result, status: attempt === 1 ? 'success' : 'retried', attempts: attempt };
-    } catch (err) {
-      lastError = err;
-      if (attempt < MAX_RETRIES) {
-        await sleep(RETRY_DELAY_MS * attempt);
-      }
-    }
+async function scrapeProduct(url) {
+  if (!url) {
+    return {
+      status: "failed",
+      error: "Product URL is required",
+    };
   }
 
-  return {
-    status: 'failed',
-    price: null,
-    error: lastError ? lastError.message : 'Unknown error',
-    scrapedAt: new Date().toISOString(),
-    attempts: MAX_RETRIES,
-  };
-}
-
-/**
- * Public entry point: scrapes one product URL and returns the result.
- * Launches its own browser instance and always closes it, even on error.
- */
-async function scrapeProduct(url) {
   const browser = await chromium.launch({
-    headless: true, // server-side / cron use -- always headless
-    args: ['--disable-blink-features=AutomationControlled'],
+    headless: true,
   });
+
   try {
-    return await scrapeWithRetries(browser, url);
+    let lastError;
+
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        console.log(`Scraping attempt ${attempt}/${MAX_RETRIES}`);
+
+        const result = await attemptScrape(browser, url);
+
+        return {
+          ...result,
+          status: attempt === 1 ? "success" : "retried",
+          attempts: attempt,
+        };
+
+      } catch (error) {
+        lastError = error;
+        console.log(`Attempt ${attempt} failed: ${error.message}`);
+
+        if (attempt < MAX_RETRIES) {
+          await sleep(RETRY_DELAY * attempt);
+        }
+      }
+    }
+
+    return {
+      status: "failed",
+      price: null,
+      error: lastError?.message || "Scraping failed",
+      attempts: MAX_RETRIES,
+      scrapedAt: new Date().toISOString(),
+    };
+
   } finally {
     await browser.close();
   }
 }
 
 module.exports = { scrapeProduct };
+
+

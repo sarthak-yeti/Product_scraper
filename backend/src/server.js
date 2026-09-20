@@ -107,33 +107,37 @@ app.post('/scrape', async (req, res) => {
     productsToScrape = data;
   }
 
-  const summary = [];
+  // Scrape all requested products IN PARALLEL rather than one-by-one --
+  // sequential scraping (with up to 4 retries each) could take a long
+  // time once you're tracking several products. Each scrape opens its
+  // own isolated browser instance, so running them concurrently is safe.
+  const summary = await Promise.all(
+    productsToScrape.map(async (product) => {
+      const result = await scrapeProduct(product.product_url);
 
-  for (const product of productsToScrape) {
-    const result = await scrapeProduct(product.product_url);
-
-    // ALWAYS log the attempt -- success, retried, or failed.
-    await supabase.from('scrape_log').insert({
-      product_id: product.id,
-      status: result.status,
-      attempts: result.attempts,
-      error_message: result.status === 'failed' ? result.error : null,
-    });
-
-    // ONLY write to price_history when we actually got a real reading.
-    if (result.status === 'success' || result.status === 'retried') {
-      await supabase.from('price_history').insert({
+      // ALWAYS log the attempt -- success, retried, or failed.
+      await supabase.from('scrape_log').insert({
         product_id: product.id,
-        price: result.price,
-        original_price: result.originalPrice,
-        stock_text: result.stockText,
-        stock_count: result.stockCount,
-        in_stock: result.inStock,
+        status: result.status,
+        attempts: result.attempts,
+        error_message: result.status === 'failed' ? result.error : null,
       });
-    }
 
-    summary.push({ productId: product.id, name: product.name, status: result.status });
-  }
+      // ONLY write to price_history when we actually got a real reading.
+      if (result.status === 'success' || result.status === 'retried') {
+        await supabase.from('price_history').insert({
+          product_id: product.id,
+          price: result.price,
+          original_price: result.originalPrice,
+          stock_text: result.stockText,
+          stock_count: result.stockCount,
+          in_stock: result.inStock,
+        });
+      }
+
+      return { productId: product.id, name: product.name, status: result.status };
+    })
+  );
 
   res.json({ scraped: summary.length, results: summary });
 });

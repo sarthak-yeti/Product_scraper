@@ -63,3 +63,13 @@ export async function scrapeNow(productId) {
   });
   return handle(res);
 }
+
+// POST /scrape {} -> scrapes every tracked product (backend loops through them)
+export async function scrapeAll() {
+  const res = await fetch(`${BASE_URL}/scrape`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+  return handle(res);
+}

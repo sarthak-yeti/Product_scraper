@@ -2,27 +2,19 @@ import { useEffect, useState } from 'react';
 import SearchPage from './components/SearchPage';
 import TrackedList from './components/TrackedList';
 import ProductDashboard from './components/ProductDashboard';
-import { getTrackedProducts } from './api';
+import { getTrackedProducts, scrapeAll } from './api';
 import './App.css';
 
-/**
- * APP ROOT
- * ---------------------------------------------------
- * Layout: search bar + results at top, tracked-products list on the
- * left, and the selected product's dashboard on the right. Simple
- * state-based view -- no router needed for something this small.
- */
 export default function App() {
   const [tracked, setTracked] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
+  const [checkingAll, setCheckingAll] = useState(false);
+  const [showTrackedPanel, setShowTrackedPanel] = useState(false);
 
   async function refreshTracked() {
     const data = await getTrackedProducts();
     setTracked(data.products);
-    // If nothing is selected yet, select the first one automatically.
-    if (!selectedId && data.products.length > 0) {
-      setSelectedId(data.products[0].id);
-    }
+    setSelectedId((prev) => prev ?? (data.products[0] ? data.products[0].id : null));
   }
 
   useEffect(() => {
@@ -30,7 +22,22 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  async function handleCheckAll() {
+    setCheckingAll(true);
+    try {
+      await scrapeAll();
+    } finally {
+      setCheckingAll(false);
+    }
+  }
+
+  function handleSelect(id) {
+    setSelectedId(id);
+    setShowTrackedPanel(false); // picking one closes the panel
+  }
+
   const selectedProduct = tracked.find((p) => p.id === selectedId);
+  const trackedUrls = new Set(tracked.map((p) => p.product_url));
 
   return (
     <div className="app">
@@ -38,21 +45,30 @@ export default function App() {
         <h1>INE Price Tracker</h1>
       </header>
 
-      <SearchPage onTracked={refreshTracked} />
+      <SearchPage onTracked={refreshTracked} trackedUrls={trackedUrls} />
 
-      <div className="main-layout">
-        <aside>
-          <h3>Tracked products</h3>
-          <TrackedList products={tracked} selectedId={selectedId} onSelect={setSelectedId} />
-        </aside>
+      <div className="toolbar">
+        <button className="btn-secondary" onClick={() => setShowTrackedPanel((v) => !v)}>
+          Tracked products ({tracked.length}) {showTrackedPanel ? '▲' : '▼'}
+        </button>
+        <button className="btn-secondary" onClick={handleCheckAll} disabled={checkingAll || tracked.length === 0}>
+          {checkingAll ? 'Checking all...' : 'Check all'}
+        </button>
+        {selectedProduct && <span className="muted current-label">Viewing: {selectedProduct.name}</span>}
+      </div>
 
-        <main>
-          {selectedProduct ? (
-            <ProductDashboard product={selectedProduct} />
-          ) : (
-            <p className="muted">Select a tracked product to see its price history.</p>
-          )}
-        </main>
+      {showTrackedPanel && (
+        <div className="card">
+          <TrackedList products={tracked} selectedId={selectedId} onSelect={handleSelect} />
+        </div>
+      )}
+
+      <div className="card dashboard-card">
+        {selectedProduct ? (
+          <ProductDashboard key={selectedProduct.id} product={selectedProduct} />
+        ) : (
+          <p className="muted">Select a tracked product to see its price history.</p>
+        )}
       </div>
     </div>
   );

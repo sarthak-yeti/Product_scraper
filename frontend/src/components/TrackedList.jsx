@@ -1,7 +1,7 @@
 /**
- * TRACKED PRODUCTS LIST
+ * TRACKED PRODUCTS TABLE
  * ---------------------------------------------------
- * Simple list of everything the user is tracking. Clicking one opens its
+ * Table of everything the user is tracking. Clicking a row opens its
  * dashboard (price history + scrape log).
  */
 export default function TrackedList({ products, selectedId, onSelect }) {
@@ -10,12 +10,23 @@ export default function TrackedList({ products, selectedId, onSelect }) {
   }
 
   return (
-    <ul className="tracked-list">
-      {products.map((p) => (
-        <li key={p.id} className={p.id === selectedId ? 'active' : ''} onClick={() => onSelect(p.id)}>
-          {p.name}
-        </li>
-      ))}
-    </ul>
+    <table className="data-table tracked-table">
+      <thead>
+        <tr>
+          <th>Product</th>
+        </tr>
+      </thead>
+      <tbody>
+        {products.map((p) => (
+          <tr
+            key={p.id}
+            className={p.id === selectedId ? 'row-selected' : ''}
+            onClick={() => onSelect(p.id)}
+          >
+            <td>{p.name}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }

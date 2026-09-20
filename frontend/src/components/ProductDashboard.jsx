@@ -78,47 +78,53 @@ export default function ProductDashboard({ product }) {
         <p className="muted">No successful scrape yet for this product.</p>
       )}
 
-      <h3>Price history</h3>
-      {chartData.length > 0 ? (
-        <ResponsiveContainer width="100%" height={260}>
-          <LineChart data={chartData}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="time" tick={{ fontSize: 10 }} />
-            <YAxis domain={['auto', 'auto']} />
-            <Tooltip />
-            <Line type="monotone" dataKey="price" stroke="#2f855a" strokeWidth={2} dot={{ r: 3 }} />
-          </LineChart>
-        </ResponsiveContainer>
-      ) : (
-        <p className="muted">No history yet — check back after the next scheduled scrape.</p>
-      )}
-
-      <h3>Scrape log</h3>
-      <table className="log-table">
-        <thead>
-          <tr>
-            <th>When</th>
-            <th>Status</th>
-            <th>Attempts</th>
-            <th>Details</th>
-          </tr>
-        </thead>
-        <tbody>
-          {logs.map((log) => (
-            <tr key={log.id} className={`status-${log.status}`}>
-              <td>{new Date(log.attempted_at).toLocaleString()}</td>
-              <td>{log.status}</td>
-              <td>{log.attempts}</td>
-              <td>{log.error_message || '—'}</td>
-            </tr>
-          ))}
-          {logs.length === 0 && (
-            <tr>
-              <td colSpan={4} className="muted">No scrape attempts logged yet.</td>
-            </tr>
+      <div className="dashboard-grid">
+        <div>
+          <h3>Price history</h3>
+          {chartData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={320}>
+              <LineChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="time" tick={{ fontSize: 10 }} />
+                <YAxis domain={['auto', 'auto']} />
+                <Tooltip />
+                <Line type="monotone" dataKey="price" stroke="#3ecf8e" strokeWidth={2} dot={{ r: 3 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          ) : (
+            <p className="muted">No history yet — check back after the next scheduled scrape.</p>
           )}
-        </tbody>
-      </table>
+        </div>
+
+        <div>
+          <h3>Scrape log</h3>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>When</th>
+                <th>Status</th>
+                <th>Attempts</th>
+                <th>Details</th>
+              </tr>
+            </thead>
+            <tbody>
+              {logs.map((log) => (
+                <tr key={log.id} className={`status-${log.status}`}>
+                  <td>{new Date(log.attempted_at).toLocaleString()}</td>
+                  <td>{log.status}</td>
+                  <td>{log.attempts}</td>
+                  <td>{log.error_message || '—'}</td>
+                </tr>
+              ))}
+              {logs.length === 0 && (
+                <tr>
+                  <td colSpan={4} className="muted">No scrape attempts logged yet.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }
