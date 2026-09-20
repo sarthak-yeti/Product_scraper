@@ -107,43 +107,44 @@ app.post('/scrape', async (req, res) => {
     productsToScrape = data;
   }
 
-  // Scrape all requested products IN PARALLEL rather than one-by-one --
-  // sequential scraping (with up to 4 retries each) could take a long
-  // time once you're tracking several products. Each scrape opens its
-  // own isolated browser instance, so running them concurrently is safe.
-  const summary = await Promise.all(
-    productsToScrape.map(async (product) => {
-      const result = await scrapeProduct(product.product_url);
+  // Scrape products ONE AT A TIME, not in parallel. Render's free tier
+  // has a hard 512MB memory limit, and each scrape launches its own full
+  // Chromium instance (150-300MB+ each) -- running several concurrently
+  // exceeded that limit and got the service killed. Sequential is slower
+  // overall but each scrape only runs every 2 hours anyway, so time isn't
+  // the constraint here -- staying under the memory limit is.
+  const summary = [];
+  for (const product of productsToScrape) {
+    const result = await scrapeProduct(product.product_url);
 
-      // ALWAYS log the attempt -- success, retried, or failed.
-      const { error: logError } = await supabase.from('scrape_log').insert({
+    // ALWAYS log the attempt -- success, retried, or failed.
+    const { error: logError } = await supabase.from('scrape_log').insert({
+      product_id: product.id,
+      status: result.status,
+      attempts: result.attempts,
+      error_message: result.status === 'failed' ? result.error : null,
+    });
+    if (logError) {
+      console.error(`[scrape_log insert failed] product=${product.id} status=${result.status}:`, logError.message);
+    }
+
+    // ONLY write to price_history when we actually got a real reading.
+    if (result.status === 'success' || result.status === 'retried') {
+      const { error: historyError } = await supabase.from('price_history').insert({
         product_id: product.id,
-        status: result.status,
-        attempts: result.attempts,
-        error_message: result.status === 'failed' ? result.error : null,
+        price: result.price,
+        original_price: result.originalPrice,
+        stock_text: result.stockText,
+        stock_count: result.stockCount,
+        in_stock: result.inStock,
       });
-      if (logError) {
-        console.error(`[scrape_log insert failed] product=${product.id} status=${result.status}:`, logError.message);
+      if (historyError) {
+        console.error(`[price_history insert failed] product=${product.id}:`, historyError.message);
       }
+    }
 
-      // ONLY write to price_history when we actually got a real reading.
-      if (result.status === 'success' || result.status === 'retried') {
-        const { error: historyError } = await supabase.from('price_history').insert({
-          product_id: product.id,
-          price: result.price,
-          original_price: result.originalPrice,
-          stock_text: result.stockText,
-          stock_count: result.stockCount,
-          in_stock: result.inStock,
-        });
-        if (historyError) {
-          console.error(`[price_history insert failed] product=${product.id}:`, historyError.message);
-        }
-      }
-
-      return { productId: product.id, name: product.name, status: result.status };
-    })
-  );
+    summary.push({ productId: product.id, name: product.name, status: result.status });
+  }
 
   res.json({ scraped: summary.length, results: summary });
 });

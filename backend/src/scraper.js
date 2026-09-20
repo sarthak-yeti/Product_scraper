@@ -252,7 +252,22 @@ async function scrapeProduct(url) {
   // the regular Chromium binary instead (the one that reliably installs
   // via `npx playwright install chromium`), avoiding that extra binary
   // entirely.
-  const browser = await chromium.launch({ headless: true, channel: 'chromium' });
+  const browser = await chromium.launch({
+    headless: true,
+    channel: 'chromium',
+    // Render's free tier has a hard 512MB memory cap. These flags reduce
+    // Chromium's memory/resource footprint significantly -- especially
+    // --disable-dev-shm-usage, since containers often have a tiny
+    // /dev/shm that Chromium would otherwise hit and behave badly on.
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--single-process',
+      '--no-zygote',
+    ],
+  });
 
   try {
     let lastError;
