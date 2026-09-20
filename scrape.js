@@ -135,19 +135,7 @@ async function attemptScrape(browser, url) {
     'sec-ch-ua-platform': '"Windows"',
   });
 
-  // DIAGNOSTIC: surface the page's own console output and any JS errors
-  // directly in our terminal, so we can see what's actually happening
-  // inside the page during a run instead of guessing blind.
-  page.on('console', (msg) => console.log(`  [page console] ${msg.type()}: ${msg.text()}`));
-  page.on('pageerror', (err) => console.log(`  [page error] ${err.message}`));
-  page.on('requestfailed', (req) => console.log(`  [request failed] ${req.url()} -- ${req.failure()?.errorText}`));
-  page.on('response', async (res) => {
-    if (res.status() === 401 || /price|api/i.test(res.url())) {
-      console.log(`  [response] ${res.status()} ${res.url()}`);
-      const reqHeaders = res.request().headers();
-      console.log(`  [request headers] ${JSON.stringify(reqHeaders, null, 2)}`);
-    }
-  });
+  // (diagnostic console/network logging removed now that debugging is done)
 
   // A fuller stealth pass: headless Chromium leaves a few fingerprints
   // beyond navigator.webdriver (empty plugin list, missing window.chrome,
@@ -293,7 +281,7 @@ async function attemptScrape(browser, url) {
         });
         await revealButton.click({ force: true, timeout: 2000 });
       } catch (e) {
-        console.log(`  [diagnostic] reveal click try ${clickTry} failed: ${e.message}`);
+        // reveal click didn't fire this round -- loop will retry
       }
 
       // Did it move off "price-idle" (loading, success, or error all count
@@ -306,7 +294,6 @@ async function attemptScrape(browser, url) {
         .evaluate((el) => /price-idle/.test(el.className))
         .catch(() => true);
       if (!stillIdle) break;
-      console.log(`  [diagnostic] still price-idle after click try ${clickTry}, retrying...`);
     }
 
     const outcome = await page
@@ -325,22 +312,14 @@ async function attemptScrape(browser, url) {
             };
           }
           const priceEl = document.querySelector(priceSelector);
-          // Also wait for the transient "Updating…" text to clear and the
-          // price element to reach full opacity -- confirmed via testing
-          // that price-success can appear WHILE the number is still
-          // mid-animation (opacity ~0.45, an "Updating…" span still
-          // present), and grabbing it then risks a not-yet-final value.
-          const stillUpdating = Array.from(document.querySelectorAll('.price-main span')).some((s) =>
-            s.textContent.includes('Updating')
-          );
-          const priceOpacity = priceEl ? parseFloat(getComputedStyle(priceEl).opacity) : 0;
-          if (
-            /price-success/.test(className) &&
-            priceEl &&
-            priceEl.textContent.trim().length > 0 &&
-            !stillUpdating &&
-            priceOpacity >= 0.99
-          ) {
+          // NOTE: an earlier version also required the "Updating…" label
+          // to disappear and opacity to reach 1 before accepting a price.
+          // Real testing showed that's too strict -- "Updating…" can
+          // persist as decorative text even once price-success is set and
+          // a real final number is already present, causing false
+          // timeouts. Match the simpler, actually-correct condition:
+          // price-success class + a non-empty price element is enough.
+          if (/price-success/.test(className) && priceEl && priceEl.textContent.trim().length > 0) {
             return { done: true, failed: false };
           }
           return false; // still loading -- keep polling
@@ -348,19 +327,7 @@ async function attemptScrape(browser, url) {
         { blockSelector: SELECTORS.priceBlock, priceSelector: SELECTORS.priceValue },
         { timeout: ELEMENT_TIMEOUT_MS }
       )
-      .then((handle) => handle.jsonValue())
-      .catch(async (timeoutErr) => {
-        // DIAGNOSTIC: on timeout, dump exactly what the price block looks
-        // like right now, so we can see what state it's actually stuck in
-        // instead of guessing.
-        const stuckHtml = await page
-          .locator(SELECTORS.priceBlock)
-          .first()
-          .evaluate((el) => el.outerHTML)
-          .catch(() => '(could not read .price-block -- selector may not match anything)');
-        console.log('  [diagnostic] .price-block HTML at timeout:\n', stuckHtml);
-        throw timeoutErr;
-      });
+      .then((handle) => handle.jsonValue());
 
     if (outcome.failed) {
       throw new Error(
@@ -469,18 +436,24 @@ async function main() {
   console.log(`Launching browser (headed=${headed}) ...`);
   const browser = await chromium.launch({
     headless: !headed,
-    // Some sites run a simple bot-detection check (the store's own
-    // "challenge_failed" naming suggests exactly this) that looks for
-    // default automation fingerprints. These flags hide the most common
-    // ones, and force Chromium's newer headless mode (much closer to a
-    // real rendered browser than the old headless implementation).
-    args: ['--disable-blink-features=AutomationControlled', '--headless=new'],
+    // IMPORTANT: only pass --headless=new when we actually want headless.
+    // Passing it unconditionally (even with headless:false) was forcing
+    // Chromium to run headless via the command-line flag regardless of
+    // the API setting -- that's why the window wasn't opening.
+    args: headed
+      ? ['--disable-blink-features=AutomationControlled']
+      : ['--disable-blink-features=AutomationControlled', '--headless=new'],
+    slowMo: headed ? 150 : 0,
   });
 
   try {
     const result = await scrapeWithRetries(browser, url);
     console.log('\n=== FINAL RESULT ===');
     console.log(JSON.stringify(result, null, 2));
+    if (headed) {
+      console.log('\nKeeping browser open for a few seconds so you can see the final state...');
+      await new Promise((r) => setTimeout(r, 4000));
+    }
   } finally {
     await browser.close();
   }

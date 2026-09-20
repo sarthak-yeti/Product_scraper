@@ -116,16 +116,19 @@ app.post('/scrape', async (req, res) => {
       const result = await scrapeProduct(product.product_url);
 
       // ALWAYS log the attempt -- success, retried, or failed.
-      await supabase.from('scrape_log').insert({
+      const { error: logError } = await supabase.from('scrape_log').insert({
         product_id: product.id,
         status: result.status,
         attempts: result.attempts,
         error_message: result.status === 'failed' ? result.error : null,
       });
+      if (logError) {
+        console.error(`[scrape_log insert failed] product=${product.id} status=${result.status}:`, logError.message);
+      }
 
       // ONLY write to price_history when we actually got a real reading.
       if (result.status === 'success' || result.status === 'retried') {
-        await supabase.from('price_history').insert({
+        const { error: historyError } = await supabase.from('price_history').insert({
           product_id: product.id,
           price: result.price,
           original_price: result.originalPrice,
@@ -133,6 +136,9 @@ app.post('/scrape', async (req, res) => {
           stock_count: result.stockCount,
           in_stock: result.inStock,
         });
+        if (historyError) {
+          console.error(`[price_history insert failed] product=${product.id}:`, historyError.message);
+        }
       }
 
       return { productId: product.id, name: product.name, status: result.status };
