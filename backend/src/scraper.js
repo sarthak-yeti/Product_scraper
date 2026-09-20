@@ -256,16 +256,16 @@ async function scrapeProduct(url) {
     headless: true,
     channel: 'chromium',
     // Render's free tier has a hard 512MB memory cap. These flags reduce
-    // Chromium's memory/resource footprint significantly -- especially
-    // --disable-dev-shm-usage, since containers often have a tiny
-    // /dev/shm that Chromium would otherwise hit and behave badly on.
+    // Chromium's memory/resource footprint. NOTE: --single-process and
+    // --no-zygote were tried but caused Chromium to crash immediately
+    // after launch in this environment ("Cannot use V8 Proxy resolver in
+    // single process mode", followed by every page failing with "Target
+    // page, context or browser has been closed") -- removed.
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
       '--disable-gpu',
-      '--single-process',
-      '--no-zygote',
     ],
   });
 
