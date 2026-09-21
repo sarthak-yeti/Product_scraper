@@ -146,7 +146,15 @@ app.post('/scrape', async (req, res) => {
     summary.push({ productId: product.id, name: product.name, status: result.status });
   }
 
-  res.json({ scraped: summary.length, results: summary });
+  // Keep the response small -- cron-job.org's free plan has a tight log
+  // size limit and marks large responses as "Failed (output too large)"
+  // even though the scrape and Supabase writes above completed fine. Send
+  // a compact summary (counts only) instead of the full per-product array.
+  const counts = summary.reduce(
+    (acc, s) => ({ ...acc, [s.status]: (acc[s.status] || 0) + 1 }),
+    {}
+  );
+  res.json({ scraped: summary.length, counts });
 });
 
 // ---------------------------------------------------
